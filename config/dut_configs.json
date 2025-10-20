@@ -1,0 +1,98 @@
+{
+  "SMA RFFE": {
+    "name": "SMA RFFE",
+    "part_number": "L109908",
+    "operational_range": {
+      "min_freq": 1.626,
+      "max_freq": 1.675
+    },
+    "wideband_range": {
+      "min_freq": 0.1,
+      "max_freq": 6.0
+    },
+    "num_ports": 4,
+    "input_ports": [
+      1
+    ],
+    "output_ports": [
+      2,
+      3,
+      4
+    ],
+    "hg_lg_enabled": false,
+    "test_enables": {
+      "s_parameters": true,
+      "compression": true,
+      "linearity": false,
+      "noise_figure": true,
+      "spurious": false,
+      "psd": false
+    },
+    "board_bringup": {
+      "gain_min_db": 25.0,
+      "gain_max_db": 35.0,
+      "gain_flatness_db": 2.8,
+      "vswr_max": 1.5,
+      "out_of_band_requirements": [
+        {
+          "freq_min": 0.1,
+          "freq_max": 0.9,
+          "rejection_db": 25.0
+        },
+        {
+          "freq_min": 2.2,
+          "freq_max": 6.0,
+          "rejection_db": 60.0
+        }
+      ],
+      "p1db_min_dbm": -28.0,
+      "pin_pout_im3_requirements": [],
+      "nf_max_db": 2.8
+    },
+    "sit": {
+      "gain_min_db": 27.5,
+      "gain_max_db": 31.3,
+      "gain_flatness_db": 2.3,
+      "vswr_max": 1.5,
+      "out_of_band_requirements": [
+        {
+          "freq_min": 0.1,
+          "freq_max": 0.9,
+          "rejection_db": 25.0
+        },
+        {
+          "freq_min": 2.2,
+          "freq_max": 6.0,
+          "rejection_db": 60.0
+        }
+      ],
+      "p1db_min_dbm": -28.0,
+      "pin_pout_im3_requirements": [],
+      "nf_max_db": 2.3
+    },
+    "test_campaign": {
+      "gain_min_db": 28.5,
+      "gain_max_db": 30.5,
+      "gain_flatness_db": 2.8,
+      "vswr_max": 1.5,
+      "out_of_band_requirements": [
+        {
+          "freq_min": 0.1,
+          "freq_max": 0.9,
+          "rejection_db": 25.0
+        },
+        {
+          "freq_min": 2.2,
+          "freq_max": 6.0,
+          "rejection_db": 60.0
+        }
+      ],
+      "p1db_min_dbm": -28.0,
+      "pin_pout_im3_requirements": [],
+      "nf_max_db": 2.8
+    }
+  }
+}
+
+
+

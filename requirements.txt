@@ -1,0 +1,25 @@
+# GUI Framework
+PyQt6>=6.4.0
+
+# Plotting Libraries
+matplotlib>=3.6.0
+pyqtgraph>=0.13.0
+
+# Data Processing
+numpy>=1.21.0
+pandas>=1.4.0
+scipy>=1.8.0
+
+# File Format Support
+scikit-rf>=0.4.0
+
+# PDF Generation
+reportlab>=3.6.0
+
+# Build Tools
+pyinstaller>=5.0.0
+
+# Development Tools
+pytest>=7.0.0
+black>=22.0.0
+flake8>=4.0.0
