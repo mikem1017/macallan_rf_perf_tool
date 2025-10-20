@@ -140,18 +140,44 @@ class SParameterProcessor:
         
         for s_param_name in s_params_to_analyze:
             s_param = s_param_data.s_parameters[s_param_name]
-            gain = self.calculate_gain(s_param)
             
-            # Calculate in-band gain
-            in_band_stats = self.calculate_in_band_gain(
-                s_param_data.frequency, gain,
-                dut_config.operational_range.min_freq,
-                dut_config.operational_range.max_freq
-            )
+            # Determine if this is a transmission or reflection parameter
+            is_reflection = s_param_name.startswith('S') and s_param_name[1] == s_param_name[2]  # S11, S22, etc.
+            is_transmission = not is_reflection  # S21, S31, S41, etc.
             
-            # Calculate VSWR (only for reflection S-parameters)
+            print(f"DEBUG: Processing {s_param_name} - Type: {'Reflection' if is_reflection else 'Transmission'}")
+            
+            # Initialize results with default values
+            in_band_stats = {'min_gain': 0.0, 'max_gain': 0.0, 'flatness': 0.0}
             vswr_max = 0.0
-            if s_param_name.startswith('S') and s_param_name[1] == s_param_name[2]:  # S11, S22, etc.
+            oob_results = []
+            
+            if is_transmission:
+                # For transmission parameters (Sxy where x≠y), calculate gain-related metrics
+                gain = self.calculate_gain(s_param)
+                
+                # Calculate in-band gain
+                in_band_stats = self.calculate_in_band_gain(
+                    s_param_data.frequency, gain,
+                    dut_config.operational_range.min_freq,
+                    dut_config.operational_range.max_freq
+                )
+                
+                # Calculate out-of-band rejections
+                print(f"DEBUG: Processing {len(requirements.out_of_band_requirements)} OoB requirements for transmission parameter")
+                for i, oob_req in enumerate(requirements.out_of_band_requirements):
+                    oob_result = self.calculate_out_of_band_rejection(
+                        s_param_data.frequency, gain, oob_req,
+                        dut_config.operational_range.min_freq,
+                        dut_config.operational_range.max_freq
+                    )
+                    oob_results.append(oob_result)
+                    print(f"DEBUG: OoB {i+1} result: {oob_result}")
+                
+                print(f"DEBUG: Skipping VSWR for {s_param_name} (transmission parameter)")
+                
+            elif is_reflection:
+                # For reflection parameters (Sxx), calculate VSWR
                 s11 = s_param_data.s_parameters[s_param_name]
                 vswr = self.calculate_vswr(s11)
                 vswr_max = self.calculate_vswr_max(
@@ -160,42 +186,51 @@ class SParameterProcessor:
                     dut_config.operational_range.max_freq
                 )
                 print(f"DEBUG: VSWR calculated for {s_param_name}: {vswr_max}")
-            else:
-                print(f"DEBUG: Skipping VSWR for {s_param_name} (not reflection)")
+                
+                print(f"DEBUG: Skipping gain/OoB calculations for {s_param_name} (reflection parameter)")
             
-            # Calculate out-of-band rejections
-            oob_results = []
-            print(f"DEBUG: Processing {len(requirements.out_of_band_requirements)} OoB requirements")
-            for i, oob_req in enumerate(requirements.out_of_band_requirements):
-                oob_result = self.calculate_out_of_band_rejection(
-                    s_param_data.frequency, gain, oob_req,
-                    dut_config.operational_range.min_freq,
-                    dut_config.operational_range.max_freq
-                )
-                oob_results.append(oob_result)
-                print(f"DEBUG: OoB {i+1} result: {oob_result}")
+            # Determine pass/fail based on parameter type
+            if is_transmission:
+                pass_fail = self._determine_transmission_pass_fail(in_band_stats, oob_results, requirements)
+            else:  # is_reflection
+                pass_fail = self._determine_reflection_pass_fail(vswr_max, requirements)
             
-            # Determine pass/fail
-            pass_fail = self._determine_pass_fail(in_band_stats, vswr_max, oob_results, requirements)
-            
-            results[s_param_name] = {
+            # Prepare results based on parameter type
+            result_data = {
                 'frequency': s_param_data.frequency,
-                'gain': gain,
-                's11_data': s_param if s_param_name.startswith('S') and s_param_name[1] == s_param_name[2] else [],
-                'in_band_gain_min': in_band_stats['min_gain'],
-                'in_band_gain_max': in_band_stats['max_gain'],
-                'flatness': in_band_stats['flatness'],
+                's11_data': s_param if is_reflection else [],
                 'vswr_max': vswr_max,
-                'out_of_band_rejections': oob_results,
-                'pass_fail': pass_fail
+                'pass_fail': pass_fail,
+                'parameter_type': 'reflection' if is_reflection else 'transmission'
             }
+            
+            if is_transmission:
+                # Add gain-related data for transmission parameters
+                result_data.update({
+                    'gain': gain,
+                    'in_band_gain_min': in_band_stats['min_gain'],
+                    'in_band_gain_max': in_band_stats['max_gain'],
+                    'flatness': in_band_stats['flatness'],
+                    'out_of_band_rejections': oob_results
+                })
+            else:
+                # Add empty gain-related data for reflection parameters
+                result_data.update({
+                    'gain': [],
+                    'in_band_gain_min': 0.0,
+                    'in_band_gain_max': 0.0,
+                    'flatness': 0.0,
+                    'out_of_band_rejections': []
+                })
+            
+            results[s_param_name] = result_data
         
         return results
     
-    def _determine_pass_fail(self, in_band_stats: Dict[str, float], vswr_max: float,
-                           oob_results: List[Dict[str, float]], 
-                           requirements: TestStageRequirements) -> str:
-        """Determine overall pass/fail status."""
+    def _determine_transmission_pass_fail(self, in_band_stats: Dict[str, float], 
+                                        oob_results: List[Dict[str, float]], 
+                                        requirements: TestStageRequirements) -> str:
+        """Determine pass/fail status for transmission S-parameters (Sxy where x≠y)."""
         # Check gain requirements
         if (in_band_stats['min_gain'] < requirements.gain_min_db or
             in_band_stats['max_gain'] > requirements.gain_max_db):
@@ -205,14 +240,19 @@ class SParameterProcessor:
         if in_band_stats['flatness'] > requirements.gain_flatness_db:
             return "Fail"
         
-        # Check VSWR requirement
-        if vswr_max > requirements.vswr_max:
-            return "Fail"
-        
         # Check out-of-band requirements
         for oob_result in oob_results:
             if not oob_result['pass']:
                 return "Fail"
+        
+        return "Pass"
+    
+    def _determine_reflection_pass_fail(self, vswr_max: float, 
+                                      requirements: TestStageRequirements) -> str:
+        """Determine pass/fail status for reflection S-parameters (Sxx)."""
+        # Check VSWR requirement
+        if vswr_max > requirements.vswr_max:
+            return "Fail"
         
         return "Pass"
     
@@ -238,6 +278,9 @@ class SParameterProcessor:
         # Define colors for different S-parameters
         colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray']
         
+        # Define line styles for PRI/RED distinction
+        line_styles = {'PRI': '-', 'RED': '--'}
+        
         # Process all files (PRI, RED, etc.)
         for file_key, file_results in results.items():
             if not isinstance(file_results, dict):
@@ -245,31 +288,53 @@ class SParameterProcessor:
                 
             for i, (s_param_name, result_data) in enumerate(file_results.items()):
                 color = colors[i % len(colors)]
+                linestyle = line_styles.get(file_key, '-')  # Default to solid line
                 
                 # Create unique key for each S-parameter and file combination
                 plot_key = f"{s_param_name}_{file_key}"
                 
                 if plot_type == "wideband_gain":
+                    # Only process transmission parameters (Sxy where x != y)
+                    if result_data.get('parameter_type') != 'transmission':
+                        print(f"DEBUG: Skipping {s_param_name} for wideband gain - not a transmission parameter")
+                        continue
+                    
                     if s_param_name not in plot_data:
                         plot_data[s_param_name] = {
                             'title': f"{dut_config.name} Wideband Gain",
                             'x_label': "Frequency (GHz)",
                             'y_label': "Gain (dB)",
-                            'curves': []
+                            'curves': [],
+                            'default_x_min': dut_config.wideband_range.min_freq,
+                            'default_x_max': dut_config.wideband_range.max_freq
                         }
                     
+                    # Filter to wideband frequency range only
+                    freq_array = np.array(result_data['frequency'])
+                    gain_array = np.array(result_data['gain'])
+                    
+                    # Ensure arrays have the same length
+                    if len(freq_array) != len(gain_array):
+                        print(f"DEBUG: Skipping {s_param_name} - frequency and gain arrays have different lengths")
+                        continue
+                    
+                    freq_mask = ((freq_array >= dut_config.wideband_range.min_freq) & 
+                               (freq_array <= dut_config.wideband_range.max_freq))
+                    wideband_freq = freq_array[freq_mask].tolist()
+                    wideband_gain = gain_array[freq_mask].tolist()
+                    
                     plot_data[s_param_name]['curves'].append({
-                        'x': result_data['frequency'],
-                        'y': result_data['gain'],
+                        'x': wideband_freq,
+                        'y': wideband_gain,
                         'label': f'{s_param_name} {file_key}',
-                        'linestyle': '-',
+                        'linestyle': linestyle,
                         'color': color
                     })
                 elif plot_type == "operational_gain":
                         if s_param_name not in plot_data:
-                            # Expand the acceptance region slightly for better visibility
-                            freq_expansion = (dut_config.operational_range.max_freq - dut_config.operational_range.min_freq) * PLOT_EXPANSION_FACTOR
-                            gain_expansion = (requirements.gain_max_db - requirements.gain_min_db) * PLOT_EXPANSION_FACTOR
+                            # Set reasonable gain range (just above acceptance criteria)
+                            gain_range = requirements.gain_max_db - requirements.gain_min_db
+                            gain_margin = max(gain_range * 0.2, 2.0)  # 20% margin or 2dB minimum
                             
                             plot_data[s_param_name] = {
                                 'title': f"{dut_config.name} Operational Gain",
@@ -277,10 +342,12 @@ class SParameterProcessor:
                                 'y_label': "Gain (dB)",
                                 'curves': [],
                                 'acceptance_region': {
-                                    'freq_min': dut_config.operational_range.min_freq - freq_expansion,
-                                    'freq_max': dut_config.operational_range.max_freq + freq_expansion,
-                                    'gain_min': requirements.gain_min_db - gain_expansion,
-                                    'gain_max': requirements.gain_max_db + gain_expansion
+                                    'freq_min': dut_config.operational_range.min_freq,
+                                    'freq_max': dut_config.operational_range.max_freq,
+                                    'gain_min': requirements.gain_min_db,
+                                    'gain_max': requirements.gain_max_db,
+                                    'y_min': requirements.gain_min_db - gain_margin,
+                                    'y_max': requirements.gain_max_db + gain_margin
                                 }
                             }
                         
@@ -288,29 +355,54 @@ class SParameterProcessor:
                             'x': result_data['frequency'],
                             'y': result_data['gain'],
                             'label': f'{s_param_name} {file_key}',
-                            'linestyle': '-',
+                            'linestyle': linestyle,
                             'color': color
                         })
                 elif plot_type == "wideband_vswr":
+                    # Only process reflection parameters (Sxx where x = y)
+                    if result_data.get('parameter_type') != 'reflection':
+                        print(f"DEBUG VSWR: Skipping {s_param_name} for wideband VSWR - not a reflection parameter")
+                        continue
+                    
                     print(f"DEBUG VSWR: Processing {s_param_name}, vswr_max = {result_data['vswr_max']}")
                     if result_data['vswr_max'] > 0:  # Only for reflection S-parameters
                         # Calculate VSWR for all frequencies
                         vswr_values = self.calculate_vswr(result_data['s11_data'])
                         print(f"DEBUG VSWR: Calculated {len(vswr_values)} VSWR values")
                         
+                        # Filter to wideband frequency range only
+                        freq_array = np.array(result_data['frequency'])
+                        vswr_array = np.array(vswr_values)
+                        
+                        # Ensure arrays have the same length
+                        if len(freq_array) != len(vswr_array):
+                            print(f"DEBUG VSWR: Skipping {s_param_name} - frequency and VSWR arrays have different lengths")
+                            continue
+                        
+                        freq_mask = ((freq_array >= dut_config.wideband_range.min_freq) & 
+                                   (freq_array <= dut_config.wideband_range.max_freq))
+                        wideband_freq = freq_array[freq_mask].tolist()
+                        wideband_vswr = vswr_array[freq_mask].tolist()
+                        print(f"DEBUG VSWR: Wideband range: {dut_config.wideband_range.min_freq} to {dut_config.wideband_range.max_freq} GHz")
+                        print(f"DEBUG VSWR: Filtered to {len(wideband_freq)} points in wideband range")
+                        
                         if s_param_name not in plot_data:
                             plot_data[s_param_name] = {
                                 'title': f"{dut_config.name} Wideband VSWR",
                                 'x_label': "Frequency (GHz)",
                                 'y_label': "VSWR",
-                                'curves': []
+                                'curves': [],
+                                'default_x_min': dut_config.wideband_range.min_freq,
+                                'default_x_max': dut_config.wideband_range.max_freq,
+                                'default_y_min': 1.0,
+                                'default_y_max': 2.0
                             }
                         
                         plot_data[s_param_name]['curves'].append({
-                            'x': result_data['frequency'],
-                            'y': vswr_values,
+                            'x': wideband_freq,
+                            'y': wideband_vswr,
                             'label': f'{s_param_name} {file_key}',
-                            'linestyle': '-',
+                            'linestyle': linestyle,
                             'color': color
                         })
                         print(f"DEBUG VSWR: Added curve for {s_param_name} {file_key}")
@@ -335,9 +427,10 @@ class SParameterProcessor:
                             continue
                         
                         # Filter to operational frequency range only
-                        freq_mask = ((result_data['frequency'] >= dut_config.operational_range.min_freq) & 
-                                   (result_data['frequency'] <= dut_config.operational_range.max_freq))
-                        operational_freq = result_data['frequency'][freq_mask].tolist()
+                        freq_array = np.array(result_data['frequency'])
+                        freq_mask = ((freq_array >= dut_config.operational_range.min_freq) & 
+                                   (freq_array <= dut_config.operational_range.max_freq))
+                        operational_freq = freq_array[freq_mask].tolist()
                         operational_vswr = np.array(vswr_values)[freq_mask].tolist()
                         
                         print(f"DEBUG VSWR: Operational range: {dut_config.operational_range.min_freq:.3f} to {dut_config.operational_range.max_freq:.3f} GHz")
@@ -349,18 +442,18 @@ class SParameterProcessor:
                             continue
                         
                         if s_param_name not in plot_data:
-                            # Expand the acceptance region slightly for better visibility
-                            freq_expansion = (dut_config.operational_range.max_freq - dut_config.operational_range.min_freq) * PLOT_EXPANSION_FACTOR
-                            
                             plot_data[s_param_name] = {
                                 'title': f"{dut_config.name} Operational VSWR",
                                 'x_label': "Frequency (GHz)",
                                 'y_label': "VSWR",
                                 'curves': [],
                                 'acceptance_region': {
-                                    'freq_min': dut_config.operational_range.min_freq - freq_expansion,
-                                    'freq_max': dut_config.operational_range.max_freq + freq_expansion,
-                                    'vswr_max': requirements.vswr_max
+                                    'freq_min': dut_config.operational_range.min_freq,
+                                    'freq_max': dut_config.operational_range.max_freq,
+                                    'vswr_min': 1.0,  # VSWR cannot be less than 1
+                                    'vswr_max': requirements.vswr_max,
+                                    'y_min': 1.0,     # Y-axis minimum
+                                    'y_max': 2.0      # Y-axis maximum
                                 }
                             }
                         
@@ -370,7 +463,7 @@ class SParameterProcessor:
                                 'x': operational_freq,
                                 'y': operational_vswr,
                                 'label': f'{s_param_name} {file_key}',
-                                'linestyle': '-',
+                                'linestyle': linestyle,
                                 'color': color
                             })
                             print(f"DEBUG VSWR: Added curve for {s_param_name} {file_key}")

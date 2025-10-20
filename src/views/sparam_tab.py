@@ -234,11 +234,26 @@ class SParamTab(QWidget):
             # Format date
             date_formatted = f"{metadata.date_code[:4]}-{metadata.date_code[4:6]}-{metadata.date_code[6:8]}"
             
-            line = f"{metadata.pri_red}"
+            # Clean up serial number (remove redundant SN prefix)
+            serial = metadata.serial_number
+            if serial.startswith('SNSN'):
+                serial = 'SN' + serial[4:]
+            
+            # Clean up part number (remove redundant L prefix)
+            part_number = metadata.part_number
+            if part_number.startswith('LL'):
+                part_number = 'L' + part_number[2:]
+            
+            # Build professional metadata line
+            line_parts = []
+            line_parts.append(f"Type: {metadata.pri_red}")
             if metadata.hg_lg:
-                line += f" {metadata.hg_lg}"
-            line += f": SN{metadata.serial_number} | PN{metadata.part_number} | {date_formatted}"
-            info_lines.append(line)
+                line_parts.append(f"Grade: {metadata.hg_lg}")
+            line_parts.append(f"Serial: {serial}")
+            line_parts.append(f"Part Number: {part_number}")
+            line_parts.append(f"Date: {date_formatted}")
+            
+            info_lines.append(" | ".join(line_parts))
         
         self.file_info_text.setPlainText("\n".join(info_lines))
     
@@ -277,87 +292,96 @@ class SParamTab(QWidget):
             # Get RED data if available
             red_data = red_results.get(s_param_name, None)
             
-            # PRI gain requirement
-            pri_gain_pass = (pri_data['in_band_gain_min'] >= requirements.gain_min_db and 
-                           pri_data['in_band_gain_max'] <= requirements.gain_max_db)
+            # Determine parameter type
+            parameter_type = pri_data.get('parameter_type', 'unknown')
+            is_transmission = parameter_type == 'transmission'
+            is_reflection = parameter_type == 'reflection'
             
-            # RED gain requirement (if available)
-            if red_data:
-                red_gain_pass = (red_data['in_band_gain_min'] >= requirements.gain_min_db and 
-                               red_data['in_band_gain_max'] <= requirements.gain_max_db)
-                red_gain_text = f"{red_data['in_band_gain_min']:.1f} to {red_data['in_band_gain_max']:.1f} dB"
-                red_gain_status = "Pass" if red_gain_pass else "Fail"
-            else:
-                red_gain_text = "N/A"
-                red_gain_status = "N/A"
-            
-            compliance_data.append({
-                'requirement': f"{s_param_name} Gain",
-                'limit': f"{requirements.gain_min_db:.1f} to {requirements.gain_max_db:.1f} dB",
-                'pri': f"{pri_data['in_band_gain_min']:.1f} to {pri_data['in_band_gain_max']:.1f} dB",
-                'pri_status': "Pass" if pri_gain_pass else "Fail",
-                'red': red_gain_text,
-                'red_status': red_gain_status
-            })
-            
-            # Gain flatness
-            pri_flatness_pass = pri_data['flatness'] <= requirements.gain_flatness_db
-            if red_data:
-                red_flatness_pass = red_data['flatness'] <= requirements.gain_flatness_db
-                red_flatness_text = f"{red_data['flatness']:.1f} dB"
-                red_flatness_status = "Pass" if red_flatness_pass else "Fail"
-            else:
-                red_flatness_text = "N/A"
-                red_flatness_status = "N/A"
-            
-            compliance_data.append({
-                'requirement': f"{s_param_name} Flatness",
-                'limit': f"<= {requirements.gain_flatness_db:.1f} dB",
-                'pri': f"{pri_data['flatness']:.1f} dB",
-                'pri_status': "Pass" if pri_flatness_pass else "Fail",
-                'red': red_flatness_text,
-                'red_status': red_flatness_status
-            })
-            
-            # VSWR (if applicable)
-            if pri_data['vswr_max'] > 0:
-                pri_vswr_pass = pri_data['vswr_max'] <= requirements.vswr_max
-                if red_data and red_data['vswr_max'] > 0:
-                    red_vswr_pass = red_data['vswr_max'] <= requirements.vswr_max
-                    red_vswr_text = f"{red_data['vswr_max']:.1f}"
-                    red_vswr_status = "Pass" if red_vswr_pass else "Fail"
+            if is_transmission:
+                # For transmission parameters (Sxy where x≠y), show gain-related requirements
+                
+                # PRI gain requirement
+                pri_gain_pass = (pri_data['in_band_gain_min'] >= requirements.gain_min_db and 
+                               pri_data['in_band_gain_max'] <= requirements.gain_max_db)
+                
+                # RED gain requirement (if available)
+                if red_data:
+                    red_gain_pass = (red_data['in_band_gain_min'] >= requirements.gain_min_db and 
+                                   red_data['in_band_gain_max'] <= requirements.gain_max_db)
+                    red_gain_text = f"{red_data['in_band_gain_min']:.1f} to {red_data['in_band_gain_max']:.1f} dB"
+                    red_gain_status = "Pass" if red_gain_pass else "Fail"
                 else:
-                    red_vswr_text = "N/A"
-                    red_vswr_status = "N/A"
+                    red_gain_text = "N/A"
+                    red_gain_status = "N/A"
                 
                 compliance_data.append({
-                    'requirement': f"{s_param_name} VSWR",
-                    'limit': f"<= {requirements.vswr_max:.1f}",
-                    'pri': f"{pri_data['vswr_max']:.1f}",
-                    'pri_status': "Pass" if pri_vswr_pass else "Fail",
-                    'red': red_vswr_text,
-                    'red_status': red_vswr_status
+                    'requirement': f"{s_param_name} Gain",
+                    'limit': f"{requirements.gain_min_db:.1f} to {requirements.gain_max_db:.1f} dB",
+                    'pri': f"{pri_data['in_band_gain_min']:.1f} to {pri_data['in_band_gain_max']:.1f} dB",
+                    'pri_status': "Pass" if pri_gain_pass else "Fail",
+                    'red': red_gain_text,
+                    'red_status': red_gain_status
                 })
-            
-            # Out-of-band requirements
-            for i, pri_oob_result in enumerate(pri_data['out_of_band_rejections']):
-                red_oob_result = red_data['out_of_band_rejections'][i] if red_data and i < len(red_data['out_of_band_rejections']) else None
                 
-                if red_oob_result:
-                    red_oob_text = f"{red_oob_result['rejection_db']:.1f} dBc"
-                    red_oob_status = "Pass" if red_oob_result['pass'] else "Fail"
+                # Gain flatness
+                pri_flatness_pass = pri_data['flatness'] <= requirements.gain_flatness_db
+                if red_data:
+                    red_flatness_pass = red_data['flatness'] <= requirements.gain_flatness_db
+                    red_flatness_text = f"{red_data['flatness']:.1f} dB"
+                    red_flatness_status = "Pass" if red_flatness_pass else "Fail"
                 else:
-                    red_oob_text = "N/A"
-                    red_oob_status = "N/A"
+                    red_flatness_text = "N/A"
+                    red_flatness_status = "N/A"
                 
                 compliance_data.append({
-                    'requirement': f"{s_param_name} OoB {i+1}",
-                    'limit': f">= {pri_oob_result['requirement']:.1f} dBc",
-                    'pri': f"{pri_oob_result['rejection_db']:.1f} dBc",
-                    'pri_status': "Pass" if pri_oob_result['pass'] else "Fail",
-                    'red': red_oob_text,
-                    'red_status': red_oob_status
+                    'requirement': f"{s_param_name} Flatness",
+                    'limit': f"<= {requirements.gain_flatness_db:.1f} dB",
+                    'pri': f"{pri_data['flatness']:.1f} dB",
+                    'pri_status': "Pass" if pri_flatness_pass else "Fail",
+                    'red': red_flatness_text,
+                    'red_status': red_flatness_status
                 })
+                
+                # Out-of-band requirements
+                for i, pri_oob_result in enumerate(pri_data['out_of_band_rejections']):
+                    red_oob_result = red_data['out_of_band_rejections'][i] if red_data and i < len(red_data['out_of_band_rejections']) else None
+                    
+                    if red_oob_result:
+                        red_oob_text = f"{red_oob_result['rejection_db']:.1f} dBc"
+                        red_oob_status = "Pass" if red_oob_result['pass'] else "Fail"
+                    else:
+                        red_oob_text = "N/A"
+                        red_oob_status = "N/A"
+                    
+                    compliance_data.append({
+                        'requirement': f"{s_param_name} OoB {i+1}",
+                        'limit': f">= {pri_oob_result['requirement']:.1f} dBc",
+                        'pri': f"{pri_oob_result['rejection_db']:.1f} dBc",
+                        'pri_status': "Pass" if pri_oob_result['pass'] else "Fail",
+                        'red': red_oob_text,
+                        'red_status': red_oob_status
+                    })
+            
+            elif is_reflection:
+                # For reflection parameters (Sxx), only show VSWR requirements
+                if pri_data['vswr_max'] > 0:
+                    pri_vswr_pass = pri_data['vswr_max'] <= requirements.vswr_max
+                    if red_data and red_data['vswr_max'] > 0:
+                        red_vswr_pass = red_data['vswr_max'] <= requirements.vswr_max
+                        red_vswr_text = f"{red_data['vswr_max']:.1f}"
+                        red_vswr_status = "Pass" if red_vswr_pass else "Fail"
+                    else:
+                        red_vswr_text = "N/A"
+                        red_vswr_status = "N/A"
+                    
+                    compliance_data.append({
+                        'requirement': f"{s_param_name} VSWR",
+                        'limit': f"<= {requirements.vswr_max:.1f}",
+                        'pri': f"{pri_data['vswr_max']:.1f}",
+                        'pri_status': "Pass" if pri_vswr_pass else "Fail",
+                        'red': red_vswr_text,
+                        'red_status': red_vswr_status
+                    })
         
         # Set compliance table data
         self.compliance_table.set_data(compliance_data, 

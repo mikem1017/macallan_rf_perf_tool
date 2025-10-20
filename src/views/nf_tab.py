@@ -212,15 +212,23 @@ class NFTab(QWidget):
             line_parts = []
             
             if 'serial' in metadata:
-                line_parts.append(f"SN{metadata['serial']}")
+                # Clean up serial number (remove redundant SN prefix)
+                serial = metadata['serial']
+                if serial.startswith('SNSN'):
+                    serial = 'SN' + serial[4:]
+                line_parts.append(f"Serial: {serial}")
             if 'part_number' in metadata:
-                line_parts.append(f"PN{metadata['part_number']}")
+                # Clean up part number (remove redundant L prefix)
+                part_number = metadata['part_number']
+                if part_number.startswith('LL'):
+                    part_number = 'L' + part_number[2:]
+                line_parts.append(f"Part Number: {part_number}")
             if 'date' in metadata:
-                line_parts.append(metadata['date'])
+                line_parts.append(f"Date: {metadata['date']}")
             if 'pri_red' in metadata:
-                line_parts.append(metadata['pri_red'])
+                line_parts.append(f"Type: {metadata['pri_red']}")
             if 'temperature' in metadata:
-                line_parts.append(f"Temp: {metadata['temperature']}")
+                line_parts.append(f"Temperature: {metadata['temperature']}")
             
             info_lines.append(" | ".join(line_parts))
         
