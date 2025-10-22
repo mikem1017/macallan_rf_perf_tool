@@ -91,8 +91,86 @@
       "pin_pout_im3_requirements": [],
       "nf_max_db": 2.8
     }
+  },
+  "TMTC TX RFFE": {
+    "name": "TMTC TX RFFE",
+    "part_number": "L666666",
+    "operational_range": {
+      "min_freq": 2.2,
+      "max_freq": 2.28
+    },
+    "wideband_range": {
+      "min_freq": 0.1,
+      "max_freq": 6.0
+    },
+    "num_ports": 3,
+    "input_ports": [
+      1
+    ],
+    "output_ports": [
+      2,
+      3
+    ],
+    "hg_lg_enabled": false,
+    "test_enables": {
+      "s_parameters": true,
+      "compression": true,
+      "linearity": true,
+      "noise_figure": true,
+      "spurious": false,
+      "psd": false
+    },
+    "board_bringup": {
+      "gain_min_db": 25.0,
+      "gain_max_db": 40.0,
+      "gain_flatness_db": 3.0,
+      "vswr_max": 1.5,
+      "out_of_band_requirements": [],
+      "p1db_min_dbm": 28.0,
+      "pin_pout_im3_requirements": [
+        {
+          "pin_dbm": -1.25,
+          "pout_min_dbm": 33.4,
+          "im3_max_dbc": -22.0
+        },
+        {
+          "pin_dbm": 0.75,
+          "pout_min_dbm": 36.0,
+          "im3_max_dbc": -20.0
+        }
+      ],
+      "nf_max_db": 10.0
+    },
+    "sit": {
+      "gain_min_db": 30.0,
+      "gain_max_db": 40.0,
+      "gain_flatness_db": 3.0,
+      "vswr_max": 1.5,
+      "out_of_band_requirements": [],
+      "p1db_min_dbm": 28.0,
+      "pin_pout_im3_requirements": [
+        {
+          "pin_dbm": -1.25,
+          "pout_min_dbm": 34.4,
+          "im3_max_dbc": -22.0
+        },
+        {
+          "pin_dbm": 0.75,
+          "pout_min_dbm": 36.0,
+          "im3_max_dbc": -22.0
+        }
+      ],
+      "nf_max_db": 0.0
+    },
+    "test_campaign": {
+      "gain_min_db": 0.0,
+      "gain_max_db": 0.0,
+      "gain_flatness_db": 0.0,
+      "vswr_max": 1.0,
+      "out_of_band_requirements": [],
+      "p1db_min_dbm": 0.0,
+      "pin_pout_im3_requirements": [],
+      "nf_max_db": 0.0
+    }
   }
 }
-
-
-

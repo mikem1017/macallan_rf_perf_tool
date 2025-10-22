@@ -12,6 +12,7 @@ scipy>=1.8.0
 
 # File Format Support
 scikit-rf>=0.4.0
+openpyxl>=3.0.0
 
 # PDF Generation
 reportlab>=3.6.0

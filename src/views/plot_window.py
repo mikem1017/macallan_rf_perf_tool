@@ -20,11 +20,11 @@ class PlotWindow(QMainWindow):
         super().__init__(parent)
         self.figure = Figure(figsize=(10, 6))
         self.canvas = FigureCanvas(self.figure)
-        self.plot_data = {}
+        self.current_plot_data = {}
         self.metadata = {}
         
         self.setWindowTitle("Plot Window")
-        self.setModal(False)
+        # setModal is not available for QWidget, only QDialog
         self.resize(1000, 700)
         
         self.init_ui()
@@ -132,7 +132,7 @@ class PlotWindow(QMainWindow):
     
     def plot_data(self, plot_data: Dict[str, Any], metadata: Dict[str, str] = None):
         """Plot data with optional metadata."""
-        self.plot_data = plot_data
+        self.current_plot_data = plot_data
         self.metadata = metadata or {}
         
         # Clear previous plot

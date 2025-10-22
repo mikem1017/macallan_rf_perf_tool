@@ -47,6 +47,11 @@ class PowerProcessor:
         if len(pin) != len(values) or len(pin) < 2:
             return 0.0
         
+        # Ensure all pin values are floats
+        pin = [float(p) for p in pin]
+        values = [float(v) for v in values]
+        target_pin = float(target_pin)
+        
         # Find the two points to interpolate between
         for i in range(len(pin) - 1):
             if pin[i] <= target_pin <= pin[i + 1]:
@@ -81,27 +86,21 @@ class PowerProcessor:
         
         results = {}
         
-        # Process each frequency (3 frequencies per file)
-        for i, freq in enumerate(power_data.frequency):
-            # Get data for this frequency - data is interleaved by frequency
-            freq_indices = list(range(i, len(power_data.pin), len(power_data.frequency)))
+        # Process each frequency using the frequency-specific data
+        for freq in power_data.freq_data.keys():
+            # Get data for this specific frequency
+            freq_data = power_data.freq_data[freq]
+            single_tone_pin = freq_data['single_tone_pin']
+            single_tone_pout = freq_data['single_tone_pout']
+            two_tone_pin = freq_data['two_tone_pin']
+            two_tone_im3 = freq_data['two_tone_im3']
+            two_tone_im5 = freq_data['two_tone_im5']
             
-            pin_freq = [power_data.pin[j] for j in freq_indices]
-            pout_freq = [power_data.pout_single_tone[j] for j in freq_indices]
-            im3_freq = [power_data.im3[j] for j in freq_indices]
-            im5_freq = [power_data.im5[j] for j in freq_indices]
-            test_type_freq = [power_data.test_type[j] for j in freq_indices]
-            
-            # Separate single-tone and two-tone data
-            single_tone_indices = [j for j, t in enumerate(test_type_freq) if t == "single-tone"]
-            two_tone_indices = [j for j, t in enumerate(test_type_freq) if t == "two-tone"]
-            
-            single_tone_pin = [pin_freq[j] for j in single_tone_indices]
-            single_tone_pout = [pout_freq[j] for j in single_tone_indices]
-            
-            two_tone_pin = [pin_freq[j] for j in two_tone_indices]
-            two_tone_im3 = [im3_freq[j] for j in two_tone_indices]
-            two_tone_im5 = [im5_freq[j] for j in two_tone_indices]
+            # Get separate upper/lower sideband data if available
+            two_tone_im3_lower = freq_data.get('two_tone_im3_lower', two_tone_im3)
+            two_tone_im3_upper = freq_data.get('two_tone_im3_upper', two_tone_im3)
+            two_tone_im5_lower = freq_data.get('two_tone_im5_lower', two_tone_im5)
+            two_tone_im5_upper = freq_data.get('two_tone_im5_upper', two_tone_im5)
             
             # Calculate P1dB
             p1db = self.find_p1db(single_tone_pin, single_tone_pout)
@@ -142,6 +141,10 @@ class PowerProcessor:
                 'two_tone_pin': two_tone_pin,
                 'two_tone_im3': two_tone_im3,
                 'two_tone_im5': two_tone_im5,
+                'two_tone_im3_lower': two_tone_im3_lower,
+                'two_tone_im3_upper': two_tone_im3_upper,
+                'two_tone_im5_lower': two_tone_im5_lower,
+                'two_tone_im5_upper': two_tone_im5_upper,
                 'p1db': p1db,
                 'p1db_pass': p1db_pass,
                 'pin_pout_im3_results': pin_pout_im3_results,
@@ -152,87 +155,302 @@ class PowerProcessor:
         return results
     
     def get_plot_data(self, results: Dict[str, Dict[str, any]], 
-                     plot_type: str, temperature_data: List[float] = None) -> Dict[str, any]:
+                     plot_type: str, dut_config, temperature_data: List[float] = None, test_stage: str = "board_bringup") -> Dict[str, any]:
         """Get data for plotting."""
         plot_data = {}
         
-        for freq, result_data in results.items():
-            if plot_type == "compression":
-                plot_data[freq] = {
-                    'x': result_data['single_tone_pin'],
-                    'y': result_data['single_tone_pout'],
+        # Define colors for different frequencies
+        colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray']
+        
+        # Define line styles for different file types
+        line_styles = {'PRI': '-', 'RED': '--'}
+        
+        # Process all files (PRI, RED, etc.)
+        for file_key, file_results in results.items():
+            if not isinstance(file_results, dict):
+                continue
+                
+            for i, (freq, result_data) in enumerate(file_results.items()):
+                color = colors[i % len(colors)]
+                linestyle = line_styles.get(file_key, '-')  # Default to solid line
+                
+                # Create unique key for each frequency and file combination
+                plot_key = f"{freq}_{file_key}"
+                if plot_type in ["compression", "full_power_sweep"]:
+                    # Sort data by Pin values to ensure proper left-to-right progression
+                    pin_data = result_data['single_tone_pin']
+                    pout_data = result_data['single_tone_pout']
+                    
+                    # Create sorted pairs and then separate back into x and y
+                    sorted_pairs = sorted(zip(pin_data, pout_data), key=lambda pair: pair[0])
+                    sorted_pin, sorted_pout = zip(*sorted_pairs)
+                    
+                    plot_data[plot_key] = {
+                        'x': list(sorted_pin),
+                        'y': list(sorted_pout),
+                        'p1db': result_data['p1db'],
+                        'title': f"Pout vs Pin - {dut_config.name}",
+                        'x_label': "Pin (dBm)",
+                        'y_label': "Pout (dBm)",
+                        'curves': [{
+                            'x': list(sorted_pin),
+                            'y': list(sorted_pout),
+                            'label': f"{file_key} @ {float(freq):.2f} GHz",
+                            'linestyle': linestyle,
+                            'color': color
+                        }]
+                    }
+                
+                elif plot_type == "operational_range":
+                    # Sort data by Pin values to ensure proper left-to-right progression
+                    pin_data = result_data['single_tone_pin']
+                    pout_data = result_data['single_tone_pout']
+                    
+                    # Create sorted pairs and then separate back into x and y
+                    sorted_pairs = sorted(zip(pin_data, pout_data), key=lambda pair: pair[0])
+                    sorted_pin, sorted_pout = zip(*sorted_pairs)
+                    
+                    # Get requirements for the current test stage
+                    if test_stage == "board_bringup":
+                        requirements = dut_config.board_bringup
+                    elif test_stage == "sit":
+                        requirements = dut_config.sit
+                    elif test_stage == "test_campaign":
+                        requirements = dut_config.test_campaign
+                    else:
+                        requirements = dut_config.board_bringup
+                    
+                    # Calculate operational range limits
+                    if requirements.pin_pout_im3_requirements:
+                        import numpy as np
+                        pin_values = [req.pin_dbm for req in requirements.pin_pout_im3_requirements]
+                        pout_values = [req.pout_min_dbm for req in requirements.pin_pout_im3_requirements]
+                        
+                        # Calculate axis limits with 2dB margins
+                        pin_min = min(pin_values) - 2.0
+                        pin_max = max(pin_values) + 2.0
+                        pout_min = min(pout_values) - 2.0
+                        pout_max = max(pout_values) + 2.0
+                        
+                        # Round to 0.25 dB increments
+                        x_min = np.floor(pin_min * 4) / 4
+                        x_max = np.ceil(pin_max * 4) / 4
+                        y_min = np.floor(pout_min * 4) / 4
+                        y_max = np.ceil(pout_max * 4) / 4
+                        
+                        plot_data[plot_key] = {
+                            'x': list(sorted_pin),
+                            'y': list(sorted_pout),
+                            'p1db': result_data['p1db'],
+                            'title': f"Pout vs Pin - {dut_config.name} (Operational Range)",
+                            'x_label': "Pin (dBm)",
+                            'y_label': "Pout (dBm)",
+                            'default_x_min': x_min,
+                            'default_x_max': x_max,
+                            'default_y_min': y_min,
+                            'default_y_max': y_max,
+                            'acceptance_region': {
+                                'pin_min': min(pin_values),
+                                'pin_max': max(pin_values),
+                                'pout_min': min(pout_values),
+                                'pout_max': max(pout_values),
+                                'x_min': x_min,
+                                'x_max': x_max,
+                                'y_min': y_min,
+                                'y_max': y_max,
+                                'requirement_points': [(req.pin_dbm, req.pout_min_dbm) 
+                                                      for req in requirements.pin_pout_im3_requirements]
+                            },
+                            'curves': [{
+                                'x': list(sorted_pin),
+                                'y': list(sorted_pout),
+                                'label': f"{file_key} @ {float(freq):.2f} GHz",
+                                'linestyle': linestyle,
+                                'color': color
+                            }]
+                        }
+                    else:
+                        # No requirements, fall back to full power sweep behavior
+                        plot_data[plot_key] = {
+                            'x': list(sorted_pin),
+                            'y': list(sorted_pout),
                     'p1db': result_data['p1db'],
-                    'title': f"Compression @ {freq:.1f} GHz",
+                            'title': f"Pout vs Pin - {dut_config.name}",
                     'x_label': "Pin (dBm)",
                     'y_label': "Pout (dBm)",
                     'curves': [{
-                        'x': result_data['single_tone_pin'],
-                        'y': result_data['single_tone_pout'],
-                        'label': 'Pout',
-                        'linestyle': '-',
-                        'color': 'blue'
-                    }]
-                }
+                                'x': list(sorted_pin),
+                                'y': list(sorted_pout),
+                                'label': f"{file_key} @ {float(freq):.2f} GHz",
+                                'linestyle': linestyle,
+                                'color': color
+                            }]
+                        }
                 
-                # Add temperature on secondary Y-axis
-                if temperature_data:
-                    plot_data[freq]['y2'] = temperature_data
-                    plot_data[freq]['y2_label'] = "Temperature (°C)"
-                    plot_data[freq]['curves'].append({
-                        'x': result_data['single_tone_pin'],
-                        'y': temperature_data,
-                        'label': 'Temperature',
-                        'linestyle': '--',
-                        'color': 'red'
+                # Note: Temperature data is not plotted on compression plots
+                # as it doesn't have a meaningful relationship with Pin/Pout
+                
+                if plot_type == "linearity":
+                    # Sort data by Pin values to ensure proper left-to-right progression
+                    pin_data = result_data['two_tone_pin']
+                    
+                    # Get separate upper and lower sideband data if available
+                    im3_lower_data = result_data.get('two_tone_im3_lower', result_data['two_tone_im3'])
+                    im3_upper_data = result_data.get('two_tone_im3_upper', result_data['two_tone_im3'])
+                    im5_lower_data = result_data.get('two_tone_im5_lower', result_data['two_tone_im5'])
+                    im5_upper_data = result_data.get('two_tone_im5_upper', result_data['two_tone_im5'])
+                    
+                    # Create sorted pairs for each sideband
+                    sorted_im3_lower_pairs = sorted(zip(pin_data, im3_lower_data), key=lambda pair: pair[0])
+                    sorted_im3_upper_pairs = sorted(zip(pin_data, im3_upper_data), key=lambda pair: pair[0])
+                    sorted_im5_lower_pairs = sorted(zip(pin_data, im5_lower_data), key=lambda pair: pair[0])
+                    sorted_im5_upper_pairs = sorted(zip(pin_data, im5_upper_data), key=lambda pair: pair[0])
+                    
+                    sorted_pin_im3_lower, sorted_im3_lower = zip(*sorted_im3_lower_pairs)
+                    sorted_pin_im3_upper, sorted_im3_upper = zip(*sorted_im3_upper_pairs)
+                    sorted_pin_im5_lower, sorted_im5_lower = zip(*sorted_im5_lower_pairs)
+                    sorted_pin_im5_upper, sorted_im5_upper = zip(*sorted_im5_upper_pairs)
+                    
+                    # Create 4 curves for IM3/IM5 upper and lower sidebands
+                    curves = []
+                    
+                    # IM3 Lower and Upper
+                    curves.append({
+                        'x': list(sorted_pin_im3_lower),
+                        'y': list(sorted_im3_lower),
+                        'label': f'IM3 Lower {file_key} @ {float(freq):.2f} GHz',
+                        'linestyle': linestyle,
+                        'color': color
+                    })
+                    curves.append({
+                        'x': list(sorted_pin_im3_upper),
+                        'y': list(sorted_im3_upper),
+                        'label': f'IM3 Upper {file_key} @ {float(freq):.2f} GHz',
+                        'linestyle': linestyle,
+                        'color': color
                     })
                     
-            elif plot_type == "linearity":
-                # Create 4 curves for IM3/IM5 lower and upper
-                curves = []
+                    # IM5 Lower and Upper
+                    curves.append({
+                        'x': list(sorted_pin_im5_lower),
+                        'y': list(sorted_im5_lower),
+                        'label': f'IM5 Lower {file_key} @ {float(freq):.2f} GHz',
+                        'linestyle': linestyle,
+                        'color': color
+                    })
+                    curves.append({
+                        'x': list(sorted_pin_im5_upper),
+                        'y': list(sorted_im5_upper),
+                        'label': f'IM5 Upper {file_key} @ {float(freq):.2f} GHz',
+                        'linestyle': linestyle,
+                        'color': color
+                    })
+                    
+                    plot_data[plot_key] = {
+                        'title': f"Linearity - {dut_config.name}",
+                        'x_label': "Pin (dBm)",
+                        'y_label': "IM3/IM5 (dBc)",
+                        'curves': curves
+                    }
                 
-                # IM3 lower and upper (assuming we have separate data)
-                # For now, using the same data - this would need to be updated with actual lower/upper data
-                curves.append({
-                    'x': result_data['two_tone_pin'],
-                    'y': result_data['two_tone_im3'],
-                    'label': 'IM3 Lower',
-                    'linestyle': '-',
-                    'color': 'green'
-                })
-                curves.append({
-                    'x': result_data['two_tone_pin'],
-                    'y': result_data['two_tone_im3'],  # Would be upper IM3
-                    'label': 'IM3 Upper',
-                    'linestyle': '--',
-                    'color': 'green'
-                })
-                curves.append({
-                    'x': result_data['two_tone_pin'],
-                    'y': result_data['two_tone_im5'],
-                    'label': 'IM5 Lower',
-                    'linestyle': '-',
-                    'color': 'orange'
-                })
-                curves.append({
-                    'x': result_data['two_tone_pin'],
-                    'y': result_data['two_tone_im5'],  # Would be upper IM5
-                    'label': 'IM5 Upper',
-                    'linestyle': '--',
-                    'color': 'orange'
-                })
-                
-                plot_data[freq] = {
-                    'title': f"Linearity @ {freq:.1f} GHz",
-                    'x_label': "Pin (dBm)",
-                    'y_label': "IM3/IM5 (dBc)",
+                elif plot_type == "im3_operational_range":
+                    # Sort data by Pin values to ensure proper left-to-right progression
+                    pin_data = result_data['two_tone_pin']
+                    
+                    # Get separate upper and lower sideband data if available
+                    im3_lower_data = result_data.get('two_tone_im3_lower', result_data['two_tone_im3'])
+                    im3_upper_data = result_data.get('two_tone_im3_upper', result_data['two_tone_im3'])
+                    
+                    # Create sorted pairs for each sideband
+                    sorted_im3_lower_pairs = sorted(zip(pin_data, im3_lower_data), key=lambda pair: pair[0])
+                    sorted_im3_upper_pairs = sorted(zip(pin_data, im3_upper_data), key=lambda pair: pair[0])
+                    
+                    sorted_pin_im3_lower, sorted_im3_lower = zip(*sorted_im3_lower_pairs)
+                    sorted_pin_im3_upper, sorted_im3_upper = zip(*sorted_im3_upper_pairs)
+                    
+                    # Create 2 curves for IM3 Lower and Upper only
+                    curves = []
+                    
+                    # IM3 Lower and Upper
+                    curves.append({
+                        'x': list(sorted_pin_im3_lower),
+                        'y': list(sorted_im3_lower),
+                        'label': f'IM3 Lower {file_key} @ {float(freq):.2f} GHz',
+                        'linestyle': linestyle,
+                        'color': color
+                    })
+                    curves.append({
+                        'x': list(sorted_pin_im3_upper),
+                        'y': list(sorted_im3_upper),
+                        'label': f'IM3 Upper {file_key} @ {float(freq):.2f} GHz',
+                        'linestyle': linestyle,
+                        'color': color
+                    })
+                    
+                    # Get requirements for the current test stage
+                    if test_stage == "board_bringup":
+                        requirements = dut_config.board_bringup
+                    elif test_stage == "sit":
+                        requirements = dut_config.sit
+                    elif test_stage == "test_campaign":
+                        requirements = dut_config.test_campaign
+                    else:
+                        requirements = dut_config.board_bringup
+                    
+                    # Calculate operational range limits with 2dB margins
+                    if requirements.pin_pout_im3_requirements:
+                        import numpy as np
+                        pin_values = [req.pin_dbm for req in requirements.pin_pout_im3_requirements]
+                        im3_values = [req.im3_max_dbc for req in requirements.pin_pout_im3_requirements]
+                        
+                        # Calculate axis limits with 2dB margins
+                        pin_min = min(pin_values) - 2.0
+                        pin_max = max(pin_values) + 2.0
+                        im3_min = min(im3_values) - 2.0
+                        im3_max = max(im3_values) + 2.0
+                        
+                        # Round to 0.25 dB increments
+                        x_min = np.floor(pin_min * 4) / 4
+                        x_max = np.ceil(pin_max * 4) / 4
+                        # For IM3 plots, y_min should be more negative (better), y_max should be less negative (worse)
+                        y_min = np.floor(im3_min * 4) / 4  # More negative (better)
+                        y_max = np.ceil(im3_max * 4) / 4   # Less negative (worse)
+                        
+                        plot_data[plot_key] = {
+                            'title': f"IM3 Operational Range - {dut_config.name}",
+                            'x_label': "Pin (dBm)",
+                            'y_label': "IM3 (dBc)",
+                            'curves': curves,
+                            'default_x_min': x_min,
+                            'default_x_max': x_max,
+                            'default_y_min': y_min,
+                            'default_y_max': y_max,
+                            'acceptance_region': {
+                                'pin_min': min(pin_values),
+                                'pin_max': max(pin_values),
+                                'im3_min': min(im3_values),
+                                'im3_max': max(im3_values),
+                                'x_min': x_min,
+                                'x_max': x_max,
+                                'y_min': y_min,
+                                'y_max': y_max,
+                                'requirement_points': [(req.pin_dbm, req.im3_max_dbc)
+                                                      for req in requirements.pin_pout_im3_requirements]
+                            }
+                        }
+                    else:
+                        plot_data[plot_key] = {
+                            'title': f"IM3 Operational Range - {dut_config.name}",
+                            'x_label': "Pin (dBm)",
+                            'y_label': "IM3 (dBc)",
                     'curves': curves
                 }
                 
                 # Add temperature on secondary Y-axis
                 if temperature_data:
-                    plot_data[freq]['y2'] = temperature_data
-                    plot_data[freq]['y2_label'] = "Temperature (°C)"
-                    plot_data[freq]['curves'].append({
+                    plot_data[plot_key]['y2'] = temperature_data
+                    plot_data[plot_key]['y2_label'] = "Temperature (°C)"
+                    plot_data[plot_key]['curves'].append({
                         'x': result_data['two_tone_pin'],
                         'y': temperature_data,
                         'label': 'Temperature',

@@ -342,25 +342,26 @@ class SParamTab(QWidget):
                     'red_status': red_flatness_status
                 })
                 
-                # Out-of-band requirements
-                for i, pri_oob_result in enumerate(pri_data['out_of_band_rejections']):
-                    red_oob_result = red_data['out_of_band_rejections'][i] if red_data and i < len(red_data['out_of_band_rejections']) else None
-                    
-                    if red_oob_result:
-                        red_oob_text = f"{red_oob_result['rejection_db']:.1f} dBc"
-                        red_oob_status = "Pass" if red_oob_result['pass'] else "Fail"
-                    else:
-                        red_oob_text = "N/A"
-                        red_oob_status = "N/A"
-                    
-                    compliance_data.append({
-                        'requirement': f"{s_param_name} OoB {i+1}",
-                        'limit': f">= {pri_oob_result['requirement']:.1f} dBc",
-                        'pri': f"{pri_oob_result['rejection_db']:.1f} dBc",
-                        'pri_status': "Pass" if pri_oob_result['pass'] else "Fail",
-                        'red': red_oob_text,
-                        'red_status': red_oob_status
-                    })
+                # Out-of-band requirements - only show if they exist
+                if pri_data.get('out_of_band_rejections'):
+                    for i, pri_oob_result in enumerate(pri_data['out_of_band_rejections']):
+                        red_oob_result = red_data['out_of_band_rejections'][i] if red_data and i < len(red_data['out_of_band_rejections']) else None
+                        
+                        if red_oob_result:
+                            red_oob_text = f"{red_oob_result['rejection_db']:.1f} dBc"
+                            red_oob_status = "Pass" if red_oob_result['pass'] else "Fail"
+                        else:
+                            red_oob_text = "N/A"
+                            red_oob_status = "N/A"
+                        
+                        compliance_data.append({
+                            'requirement': f"{s_param_name} OoB {i+1}",
+                            'limit': f">= {pri_oob_result['requirement']:.1f} dBc",
+                            'pri': f"{pri_oob_result['rejection_db']:.1f} dBc",
+                            'pri_status': "Pass" if pri_oob_result['pass'] else "Fail",
+                            'red': red_oob_text,
+                            'red_status': red_oob_status
+                        })
             
             elif is_reflection:
                 # For reflection parameters (Sxx), only show VSWR requirements

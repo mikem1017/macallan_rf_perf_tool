@@ -34,6 +34,12 @@ class PowerLinearityData:
     im3: List[float]  # dBc
     im5: List[float]  # dBc
     test_type: List[str]  # "single-tone" or "two-tone"
+    single_tone_pin: List[float] = field(default_factory=list)  # dBm - only Single Tone
+    single_tone_pout: List[float] = field(default_factory=list)  # dBm - only Single Tone
+    two_tone_pin: List[float] = field(default_factory=list)  # dBm - only Two Tone
+    two_tone_im3: List[float] = field(default_factory=list)  # dBc - only Two Tone
+    two_tone_im5: List[float] = field(default_factory=list)  # dBc - only Two Tone
+    freq_data: Dict = field(default_factory=dict)  # Frequency-specific data
 
 @dataclass
 class NoiseFigureData:

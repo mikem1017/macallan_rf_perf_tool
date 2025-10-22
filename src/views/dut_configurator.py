@@ -259,27 +259,14 @@ class DUTConfiguratorDialog(QDialog):
         
         # Out-of-band requirements table
         sparam_layout.addWidget(QLabel("Out-of-Band Requirements:"), 2, 0, 1, 4)
-        oob_table = QTableWidget(2, 3)  # Start with 2 rows
+        oob_table = QTableWidget(0, 3)  # Start with 0 rows
         oob_table.setHorizontalHeaderLabels(["Freq Min (GHz)", "Freq Max (GHz)", "Rejection (dBc)"])
         oob_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        oob_table.setMinimumHeight(80)  # Space for 2 rows minimum
+        oob_table.setMaximumHeight(200)  # Space for ~5 rows, then scrollbar
         sparam_layout.addWidget(oob_table, 3, 0, 1, 4)
         
-        # Initialize the 2 default rows with spin boxes
-        for i in range(2):
-            freq_min_spin = QDoubleSpinBox()
-            freq_min_spin.setRange(0.001, 1000.0)
-            freq_min_spin.setDecimals(3)
-            oob_table.setCellWidget(i, 0, freq_min_spin)
-            
-            freq_max_spin = QDoubleSpinBox()
-            freq_max_spin.setRange(0.001, 1000.0)
-            freq_max_spin.setDecimals(3)
-            oob_table.setCellWidget(i, 1, freq_max_spin)
-            
-            rejection_spin = QDoubleSpinBox()
-            rejection_spin.setRange(0.0, 200.0)
-            rejection_spin.setDecimals(1)
-            oob_table.setCellWidget(i, 2, rejection_spin)
+        # No default rows - user adds with "Add OoB Range" button
         
         # OoB control buttons
         oob_buttons = QHBoxLayout()
@@ -298,7 +285,7 @@ class DUTConfiguratorDialog(QDialog):
         power_layout.addWidget(QLabel("P1dB Min (dBm):"), 0, 0)
         p1db_spin = QDoubleSpinBox()
         p1db_spin.setRange(-50.0, 50.0)
-        p1db_spin.setDecimals(1)
+        p1db_spin.setDecimals(2)
         power_layout.addWidget(p1db_spin, 0, 1)
         
         # Pin-Pout-IM3 requirements table
@@ -383,17 +370,17 @@ class DUTConfiguratorDialog(QDialog):
         # Add spin boxes for Pin, Pout, and IM3
         pin_spin = QDoubleSpinBox()
         pin_spin.setRange(-50.0, 50.0)
-        pin_spin.setDecimals(1)
+        pin_spin.setDecimals(2)
         table.setCellWidget(row, 0, pin_spin)
         
         pout_spin = QDoubleSpinBox()
         pout_spin.setRange(-50.0, 50.0)
-        pout_spin.setDecimals(1)
+        pout_spin.setDecimals(2)
         table.setCellWidget(row, 1, pout_spin)
         
         im3_spin = QDoubleSpinBox()
         im3_spin.setRange(-200.0, 0.0)
-        im3_spin.setDecimals(1)
+        im3_spin.setDecimals(2)
         table.setCellWidget(row, 2, im3_spin)
     
     def remove_pin_pout_requirement(self, table: QTableWidget):
@@ -467,27 +454,28 @@ class DUTConfiguratorDialog(QDialog):
         tab.flatness_spin.setValue(requirements.gain_flatness_db)
         tab.vswr_spin.setValue(requirements.vswr_max)
         
-        # Out-of-band requirements - ensure at least 2 rows
-        num_oob = max(len(requirements.out_of_band_requirements), 2)
-        tab.oob_table.setRowCount(num_oob)
+        # Out-of-band requirements - show actual requirement count with proper spacing
+        num_oob = len(requirements.out_of_band_requirements)
+        tab.oob_table.setRowCount(num_oob)  # Show actual requirements count
         
+        # Populate rows with spin boxes for actual requirements
         for i in range(num_oob):
             freq_min_spin = QDoubleSpinBox()
             freq_min_spin.setRange(0.001, 1000.0)
             freq_min_spin.setDecimals(3)
-            freq_min_spin.setValue(requirements.out_of_band_requirements[i].freq_min if i < len(requirements.out_of_band_requirements) else 0.0)
+            freq_min_spin.setValue(requirements.out_of_band_requirements[i].freq_min)
             tab.oob_table.setCellWidget(i, 0, freq_min_spin)
             
             freq_max_spin = QDoubleSpinBox()
             freq_max_spin.setRange(0.001, 1000.0)
             freq_max_spin.setDecimals(3)
-            freq_max_spin.setValue(requirements.out_of_band_requirements[i].freq_max if i < len(requirements.out_of_band_requirements) else 0.0)
+            freq_max_spin.setValue(requirements.out_of_band_requirements[i].freq_max)
             tab.oob_table.setCellWidget(i, 1, freq_max_spin)
             
             rejection_spin = QDoubleSpinBox()
             rejection_spin.setRange(0.0, 200.0)
             rejection_spin.setDecimals(1)
-            rejection_spin.setValue(requirements.out_of_band_requirements[i].rejection_db if i < len(requirements.out_of_band_requirements) else 0.0)
+            rejection_spin.setValue(requirements.out_of_band_requirements[i].rejection_db)
             tab.oob_table.setCellWidget(i, 2, rejection_spin)
         
         # Power/Linearity
@@ -498,19 +486,19 @@ class DUTConfiguratorDialog(QDialog):
         for i, req in enumerate(requirements.pin_pout_im3_requirements):
             pin_spin = QDoubleSpinBox()
             pin_spin.setRange(-50.0, 50.0)
-            pin_spin.setDecimals(1)
+            pin_spin.setDecimals(2)
             pin_spin.setValue(req.pin_dbm)
             tab.pin_pout_table.setCellWidget(i, 0, pin_spin)
             
             pout_spin = QDoubleSpinBox()
             pout_spin.setRange(-50.0, 50.0)
-            pout_spin.setDecimals(1)
+            pout_spin.setDecimals(2)
             pout_spin.setValue(req.pout_min_dbm)
             tab.pin_pout_table.setCellWidget(i, 1, pout_spin)
             
             im3_spin = QDoubleSpinBox()
             im3_spin.setRange(-200.0, 0.0)
-            im3_spin.setDecimals(1)
+            im3_spin.setDecimals(2)
             im3_spin.setValue(req.im3_max_dbc)
             tab.pin_pout_table.setCellWidget(i, 2, im3_spin)
         
@@ -577,23 +565,8 @@ class DUTConfiguratorDialog(QDialog):
             tab.gain_max_spin.setValue(0.0)
             tab.flatness_spin.setValue(0.0)
             tab.vswr_spin.setValue(1.0)
-            # Ensure at least 2 rows in OOB table
-            tab.oob_table.setRowCount(2)
-            for i in range(2):
-                freq_min_spin = QDoubleSpinBox()
-                freq_min_spin.setRange(0.001, 1000.0)
-                freq_min_spin.setDecimals(3)
-                tab.oob_table.setCellWidget(i, 0, freq_min_spin)
-                
-                freq_max_spin = QDoubleSpinBox()
-                freq_max_spin.setRange(0.001, 1000.0)
-                freq_max_spin.setDecimals(3)
-                tab.oob_table.setCellWidget(i, 1, freq_max_spin)
-                
-                rejection_spin = QDoubleSpinBox()
-                rejection_spin.setRange(0.0, 200.0)
-                rejection_spin.setDecimals(1)
-                tab.oob_table.setCellWidget(i, 2, rejection_spin)
+            # Clear OOB table to 0 rows
+            tab.oob_table.setRowCount(0)
             tab.p1db_spin.setValue(0.0)
             tab.pin_pout_table.setRowCount(0)
             tab.nf_spin.setValue(0.0)
@@ -674,7 +647,7 @@ class DUTConfiguratorDialog(QDialog):
     
     def get_test_stage_requirements(self, tab: QWidget) -> TestStageRequirements:
         """Get requirements from a test stage tab."""
-        # Get out-of-band requirements
+        # Get out-of-band requirements - only save complete rows (all fields non-zero)
         oob_requirements = []
         for row in range(tab.oob_table.rowCount()):
             freq_min_widget = tab.oob_table.cellWidget(row, 0)
@@ -682,11 +655,17 @@ class DUTConfiguratorDialog(QDialog):
             rejection_widget = tab.oob_table.cellWidget(row, 2)
             
             if freq_min_widget and freq_max_widget and rejection_widget:
-                oob_requirements.append(OutOfBandRequirement(
-                    freq_min=freq_min_widget.value(),
-                    freq_max=freq_max_widget.value(),
-                    rejection_db=rejection_widget.value()
-                ))
+                freq_min = freq_min_widget.value()
+                freq_max = freq_max_widget.value()
+                rejection = rejection_widget.value()
+                
+                # Only save if ALL three fields are non-zero
+                if freq_min > 0 and freq_max > 0 and rejection > 0:
+                    oob_requirements.append(OutOfBandRequirement(
+                        freq_min=freq_min,
+                        freq_max=freq_max,
+                        rejection_db=rejection
+                    ))
         
         # Get Pin-Pout-IM3 requirements
         pin_pout_im3_requirements = []

@@ -149,6 +149,10 @@ class MainWindow(QMainWindow):
         self.dut_combo.currentTextChanged.connect(self.on_dut_changed)
         self.stage_combo.currentTextChanged.connect(self.on_stage_changed)
         self.config_button.clicked.connect(self.open_dut_configurator)
+        
+        # Trigger initial DUT update to set up file loading buttons with correct counts
+        if self.current_dut:
+            self.dut_changed.emit(self.current_dut)
     
     def update_dut_combo(self):
         """Update the DUT combo box with available DUTs."""

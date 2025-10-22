@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLa
                              QFileDialog, QMessageBox, QProgressBar)
 from PyQt6.QtCore import Qt, pyqtSignal
 from src.views.compliance_table import ComplianceTable
-from src.views.plot_window import PlotWindow
+from src.views.plot_window_simple import PlotWindow
 from src.controllers.file_parser import FileParser
 from src.utils.csv_reader import CSVReader
 from src.controllers.power_processor import PowerProcessor
@@ -76,13 +76,21 @@ class PowerLinearityTab(QWidget):
         plot_group = QGroupBox("Plots")
         plot_layout = QGridLayout(plot_group)
         
-        self.compression_btn = QPushButton("Compression Plots")
-        self.compression_btn.clicked.connect(lambda: self.open_plots("compression"))
-        plot_layout.addWidget(self.compression_btn, 0, 0)
+        self.full_power_sweep_btn = QPushButton("Full Power Sweep")
+        self.full_power_sweep_btn.clicked.connect(lambda: self.open_plots("full_power_sweep"))
+        plot_layout.addWidget(self.full_power_sweep_btn, 0, 0)
         
-        self.linearity_btn = QPushButton("Linearity Plots")
+        self.operational_range_btn = QPushButton("Operational Power")
+        self.operational_range_btn.clicked.connect(lambda: self.open_plots("operational_range"))
+        plot_layout.addWidget(self.operational_range_btn, 0, 1)
+        
+        self.linearity_btn = QPushButton("Full Linearity Sweep")
         self.linearity_btn.clicked.connect(lambda: self.open_plots("linearity"))
-        plot_layout.addWidget(self.linearity_btn, 0, 1)
+        plot_layout.addWidget(self.linearity_btn, 1, 0)
+        
+        self.im3_operational_btn = QPushButton("Operational Linearity")
+        self.im3_operational_btn.clicked.connect(lambda: self.open_plots("im3_operational_range"))
+        plot_layout.addWidget(self.im3_operational_btn, 1, 1)
         
         layout.addWidget(plot_group)
         
@@ -105,11 +113,48 @@ class PowerLinearityTab(QWidget):
         # Connect to main window signals
         if self.main_window:
             self.main_window.dut_changed.connect(self.on_dut_changed)
+            self.main_window.test_stage_changed.connect(self.on_test_stage_changed)
     
     def on_dut_changed(self, dut_name: str):
         """Handle DUT selection change."""
         self.update_file_loading_capability()
         self.update_plot_buttons()
+    
+    def on_test_stage_changed(self, test_stage: str):
+        """Handle test stage change."""
+        print(f"DEBUG: Power/Linearity tab received test stage change: {test_stage}")
+        print(f"DEBUG: processed_results available: {bool(self.processed_results)}")
+        # Update plot buttons for new test stage
+        self.update_plot_buttons()
+        # Re-process data with new test stage if we have processed results
+        if self.processed_results:
+            print("DEBUG: Re-processing power/linearity data with new test stage")
+            self.reprocess_data_with_new_test_stage(test_stage)
+    
+    def reprocess_data_with_new_test_stage(self, test_stage: str):
+        """Re-process all loaded data with the new test stage."""
+        if not self.processed_results or not self.main_window:
+            return
+        
+        dut_config = self.main_window.get_current_dut_config()
+        if not dut_config:
+            return
+        
+        print(f"DEBUG: Re-processing {len(self.processed_results)} files with test stage: {test_stage}")
+        
+        # Re-process each file with the new test stage
+        for file_type, file_results in self.processed_results.items():
+            # Get the original power data (we need to store this during initial processing)
+            if hasattr(self, 'original_power_data') and file_type in self.original_power_data:
+                power_data = self.original_power_data[file_type]
+                # Re-process with new test stage
+                new_results = self.power_processor.process_power_linearity(
+                    power_data, dut_config, test_stage)
+                self.processed_results[file_type] = new_results
+                print(f"DEBUG: Re-processed {file_type} with test stage {test_stage}")
+        
+        # Update the compliance table with the new results
+        self.update_compliance_table()
     
     def update_file_loading_capability(self):
         """Update file loading capability based on selected DUT."""
@@ -132,11 +177,33 @@ class PowerLinearityTab(QWidget):
         dut_config = self.main_window.get_current_dut_config() if self.main_window else None
         
         if dut_config:
-            self.compression_btn.setEnabled(dut_config.test_enables.get('compression', False))
-            self.linearity_btn.setEnabled(dut_config.test_enables.get('linearity', False))
+            # Enable compression/linearity buttons based on test enables
+            compression_enabled = dut_config.test_enables.get('compression', False)
+            linearity_enabled = dut_config.test_enables.get('linearity', False)
+            
+            self.full_power_sweep_btn.setEnabled(compression_enabled)
+            self.linearity_btn.setEnabled(linearity_enabled)
+            
+            # Check if operational range button should be enabled
+            # It's enabled if compression is enabled AND there are power/linearity requirements
+            test_stage = self.main_window.current_test_stage if self.main_window else "board_bringup"
+            if test_stage == "board_bringup":
+                requirements = dut_config.board_bringup
+            elif test_stage == "sit":
+                requirements = dut_config.sit
+            elif test_stage == "test_campaign":
+                requirements = dut_config.test_campaign
+            else:
+                requirements = dut_config.board_bringup
+            
+            has_power_requirements = len(requirements.pin_pout_im3_requirements) > 0
+            self.operational_range_btn.setEnabled(compression_enabled and has_power_requirements)
+            self.im3_operational_btn.setEnabled(linearity_enabled and has_power_requirements)
         else:
-            self.compression_btn.setEnabled(False)
+            self.full_power_sweep_btn.setEnabled(False)
+            self.operational_range_btn.setEnabled(False)
             self.linearity_btn.setEnabled(False)
+            self.im3_operational_btn.setEnabled(False)
     
     def load_files(self):
         """Load CSV files."""
@@ -150,8 +217,8 @@ class PowerLinearityTab(QWidget):
         
         # Open file dialog
         files, _ = QFileDialog.getOpenFileNames(
-            self, f"Select {num_files} CSV Files", "", 
-            "CSV Files (*.csv)")
+            self, f"Select {num_files} Power/Linearity Files", "", 
+            "Excel Files (*.xlsx *.xls);;CSV Files (*.csv);;All Supported Files (*.xlsx *.xls *.csv)")
         
         if not files:
             return
@@ -177,23 +244,38 @@ class PowerLinearityTab(QWidget):
             
             self.progress_bar.setValue(25)
             
-            # Read CSV files
-            self.power_data = self.csv_reader.read_power_linearity_csv(files[0])
-            if not self.power_data:
-                QMessageBox.warning(self, "File Read Error", 
-                                  f"Could not read CSV file: {files[0]}")
-                self.progress_bar.setVisible(False)
-                return
+            # Process all power/linearity files (PRI, RED, etc.)
+            self.processed_results = {}
+            self.temperature_data = {}
+            self.original_power_data = {}  # Store original power data for re-processing
             
-            # Extract temperature data
-            self.temperature_data = self.extract_temperature_data(files[0])
+            for i, file_path in enumerate(files):
+                # Read power/linearity file
+                power_data = self.csv_reader.read_power_linearity_csv(file_path)
+                if not power_data:
+                    QMessageBox.warning(self, "File Read Error", 
+                                      f"Could not read power/linearity file: {file_path}")
+                    self.progress_bar.setVisible(False)
+                    return
+                
+                # Extract temperature data
+                temp_data = self.extract_temperature_data(file_path)
+                
+                # Process power/linearity data
+                test_stage = self.main_window.current_test_stage if self.main_window else DEFAULT_TEST_STAGE
+                file_results = self.power_processor.process_power_linearity(
+                    power_data, dut_config, test_stage)
+                
+                # Determine file type (PRI, RED, etc.) from metadata
+                file_metadata = self.csv_reader.extract_csv_metadata(file_path)
+                file_type = file_metadata.get('pri_red', f'FILE_{i+1}')
+                
+                # Store results with file type as key
+                self.processed_results[file_type] = file_results
+                self.temperature_data[file_type] = temp_data
+                self.original_power_data[file_type] = power_data  # Store original data
             
             self.progress_bar.setValue(50)
-            
-            # Process power/linearity data
-            test_stage = self.main_window.current_test_stage if self.main_window else DEFAULT_TEST_STAGE
-            self.processed_results = self.power_processor.process_power_linearity(
-                self.power_data, dut_config, test_stage)
             
             self.progress_bar.setValue(75)
             
@@ -212,10 +294,14 @@ class PowerLinearityTab(QWidget):
             self.progress_bar.setVisible(False)
     
     def extract_temperature_data(self, file_path: str) -> List[float]:
-        """Extract temperature data from CSV file."""
+        """Extract temperature data from CSV or Excel file."""
         try:
             import pandas as pd
-            df = pd.read_csv(file_path)
+            # Read file based on extension
+            if file_path.lower().endswith(('.xlsx', '.xls')):
+                df = pd.read_excel(file_path)
+            else:
+                df = pd.read_csv(file_path)
             
             # Get temperature data for each frequency
             temperature = df['Thermister Calc (C)'].tolist()
@@ -243,16 +329,41 @@ class PowerLinearityTab(QWidget):
         for metadata in self.file_metadata:
             line_parts = []
             
+            # Format serial number (handle SN/EM prefixes correctly)
             if 'serial' in metadata:
-                line_parts.append(f"SN{metadata['serial']}")
+                serial = str(metadata['serial'])
+                # Handle SNEM case (e.g., SNEM-0003 -> EM0003)
+                if serial.startswith('SNEM'):
+                    serial = 'EM' + serial[4:]  # Remove "SN" from "SNEM-0003"
+                # Handle SNSN case (e.g., SNSN0003 -> SN0003)
+                elif serial.startswith('SNSN'):
+                    serial = 'SN' + serial[4:]  # Remove first "SN" from "SNSN0003"
+                # Handle SN case (e.g., SN0003 -> SN0003, keep as is)
+                elif serial.startswith('SN'):
+                    serial = serial  # Keep SN prefix
+                # Handle EM case (e.g., EM0003 -> EM0003, keep as is)
+                elif serial.startswith('EM'):
+                    serial = serial  # Keep EM prefix
+                line_parts.append(f"Serial: {serial}")
+            
+            # Format part number (remove redundant "L" prefix)
             if 'part_number' in metadata:
-                line_parts.append(f"PN{metadata['part_number']}")
+                part_num = str(metadata['part_number'])
+                if part_num.startswith('L'):
+                    part_num = part_num[1:]  # Remove "L" prefix
+                line_parts.append(f"Part Number: L{part_num}")
+            
+            # Format date
             if 'date' in metadata:
-                line_parts.append(metadata['date'])
+                line_parts.append(f"Date: {metadata['date']}")
+            
+            # Format PRI/RED status
             if 'pri_red' in metadata:
-                line_parts.append(metadata['pri_red'])
+                line_parts.append(f"Type: {metadata['pri_red']}")
+            
+            # Format temperature
             if 'temperature' in metadata:
-                line_parts.append(f"Temp: {metadata['temperature']}")
+                line_parts.append(f"Temperature: {metadata['temperature']}")
             
             info_lines.append(" | ".join(line_parts))
         
@@ -283,36 +394,56 @@ class PowerLinearityTab(QWidget):
         
         compliance_data = []
         
+        # Get PRI and RED data
+        pri_data = self.processed_results.get('PRI', {})
+        red_data = self.processed_results.get('RED', {})
+        
         # Add P1dB requirements
-        for freq, result_data in self.processed_results.items():
+        for freq, result_data in pri_data.items():
+            red_result_data = red_data.get(freq, {}) if red_data else {}
+            
+            # PRI data
+            pri_p1db = result_data.get('p1db', 0.0)
+            pri_p1db_pass = result_data.get('p1db_pass', False)
+            
+            # RED data
+            red_p1db = red_result_data.get('p1db', 0.0) if red_result_data else 0.0
+            red_p1db_pass = red_result_data.get('p1db_pass', False) if red_result_data else False
+            
             compliance_data.append({
-                'requirement': f"P1dB @ {freq:.1f} GHz",
-                'limit': f">= {requirements.p1db_min_dbm:.1f} dBm",
-                'pri': f"{result_data['p1db']:.1f} dBm",
-                'pri_status': "Pass" if result_data['p1db_pass'] else "Fail",
-                'red': "N/A",  # Would need RED data
-                'red_status': "N/A"
+                'requirement': f"P1dB @ {float(freq):.2f} GHz",
+                'limit': f">= {requirements.p1db_min_dbm:.2f} dBm",
+                'pri': f"{pri_p1db:.2f} dBm",
+                'pri_status': "Pass" if pri_p1db_pass else "Fail",
+                'red': f"{red_p1db:.2f} dBm" if red_result_data else "N/A",
+                'red_status': "Pass" if red_p1db_pass else ("Fail" if red_result_data else "N/A")
             })
         
         # Add Pin-Pout-IM3 requirements
-        for freq, result_data in self.processed_results.items():
-            for req_result in result_data['pin_pout_im3_results']:
+        for freq, result_data in pri_data.items():
+            red_result_data = red_data.get(freq, {}) if red_data else {}
+            
+            for i, req_result in enumerate(result_data.get('pin_pout_im3_results', [])):
+                red_req_result = red_result_data.get('pin_pout_im3_results', [])[i] if red_result_data and i < len(red_result_data.get('pin_pout_im3_results', [])) else None
+                
+                # Pout requirement
                 compliance_data.append({
-                    'requirement': f"Pout @ Pin={req_result['pin_dbm']:.1f}dBm, {freq:.1f}GHz",
-                    'limit': f">= {req_result['pout_required']:.1f} dBm",
-                    'pri': f"{req_result['pout_measured']:.1f} dBm",
+                    'requirement': f"Pout @ Pin={req_result['pin_dbm']:.2f}dBm, {float(freq):.2f}GHz",
+                    'limit': f">= {req_result['pout_required']:.2f} dBm",
+                    'pri': f"{req_result['pout_measured']:.2f} dBm",
                     'pri_status': "Pass" if req_result['pout_pass'] else "Fail",
-                    'red': "N/A",
-                    'red_status': "N/A"
+                    'red': f"{red_req_result['pout_measured']:.2f} dBm" if red_req_result else "N/A",
+                    'red_status': "Pass" if red_req_result and red_req_result['pout_pass'] else ("Fail" if red_req_result else "N/A")
                 })
                 
+                # IM3 requirement
                 compliance_data.append({
-                    'requirement': f"IM3 @ Pin={req_result['pin_dbm']:.1f}dBm, {freq:.1f}GHz",
-                    'limit': f"< {req_result['im3_required']:.1f} dBc",
-                    'pri': f"{req_result['im3_measured']:.1f} dBc",
+                    'requirement': f"IM3 @ Pin={req_result['pin_dbm']:.2f}dBm, {float(freq):.2f}GHz",
+                    'limit': f"< {req_result['im3_required']:.2f} dBc",
+                    'pri': f"{req_result['im3_measured']:.2f} dBc",
                     'pri_status': "Pass" if req_result['im3_pass'] else "Fail",
-                    'red': "N/A",
-                    'red_status': "N/A"
+                    'red': f"{red_req_result['im3_measured']:.2f} dBc" if red_req_result else "N/A",
+                    'red_status': "Pass" if red_req_result and red_req_result['im3_pass'] else ("Fail" if red_req_result else "N/A")
                 })
         
         # Set compliance table data
@@ -326,24 +457,48 @@ class PowerLinearityTab(QWidget):
             QMessageBox.warning(self, "No Data", "Please load files first.")
             return
         
-        # Create plot windows for each frequency
-        for freq, result_data in self.processed_results.items():
-            plot_window = PlotWindow(self)
-            
-            # Get plot data
-            plot_data = self.power_processor.get_plot_data(
-                {freq: result_data}, plot_type, 
-                self.temperature_data[list(self.processed_results.keys()).index(freq)] if self.temperature_data else None)
-            
-            # Prepare metadata
-            metadata = self.prepare_metadata()
-            
-            # Plot the data
-            if freq in plot_data:
-                plot_window.plot_data(plot_data[freq], metadata)
-            
+        # Get DUT config
+        dut_config = self.main_window.get_current_dut_config() if self.main_window else None
+        if not dut_config:
+            QMessageBox.warning(self, "No DUT Config", "Please select a DUT configuration.")
+            return
+        
+        # Create a single plot window with all frequencies and file types
+        plot_window = PlotWindow(self)
+        
+        # Get all frequencies from PRI data (assuming all files have same frequencies)
+        pri_data = self.processed_results.get('PRI', {})
+        red_data = self.processed_results.get('RED', {})
+        
+        # Collect all plot data for all frequencies and file types
+        all_plot_data = {}
+        
+        # Prepare data in the format expected by power processor: {file_key: {freq: result_data}}
+        all_file_data = {}
+        if pri_data:
+            all_file_data['PRI'] = pri_data
+        if red_data:
+            all_file_data['RED'] = red_data
+        
+        # Get plot data for all files and frequencies
+        test_stage = self.main_window.current_test_stage if self.main_window else "board_bringup"
+        plot_data_dict = self.power_processor.get_plot_data(
+            all_file_data, plot_type, dut_config,
+            self.temperature_data.get('PRI', []) if self.temperature_data else None, test_stage)
+        
+        # The plot_data_dict now contains keys like "2.2_PRI", "2.2_RED", etc.
+        all_plot_data = plot_data_dict
+        
+        # Prepare metadata
+        metadata = self.prepare_metadata()
+        
+        # Plot all data on single window
+        if all_plot_data:
+            plot_window.plot_multiple_data(all_plot_data, metadata)
             plot_window.show()
             self.plot_windows.append(plot_window)
+        else:
+            print("DEBUG: No plot data available")
     
     def prepare_metadata(self) -> Dict[str, str]:
         """Prepare metadata for plots."""
@@ -352,7 +507,20 @@ class PowerLinearityTab(QWidget):
         if self.file_metadata:
             first_metadata = self.file_metadata[0]
             if 'serial' in first_metadata:
-                metadata['serial'] = f"SN{first_metadata['serial']}"
+                serial = str(first_metadata['serial'])
+                # Handle SNEM case (e.g., SNEM-0003 -> EM0003)
+                if serial.startswith('SNEM'):
+                    serial = 'EM' + serial[4:]  # Remove "SN" from "SNEM-0003"
+                # Handle SNSN case (e.g., SNSN0003 -> SN0003)
+                elif serial.startswith('SNSN'):
+                    serial = 'SN' + serial[4:]  # Remove first "SN" from "SNSN0003"
+                # Handle SN case (e.g., SN0003 -> SN0003, keep as is)
+                elif serial.startswith('SN'):
+                    serial = serial  # Keep SN prefix
+                # Handle EM case (e.g., EM0003 -> EM0003, keep as is)
+                elif serial.startswith('EM'):
+                    serial = serial  # Keep EM prefix
+                metadata['serial'] = serial
             if 'part_number' in first_metadata:
                 metadata['part_number'] = f"L{first_metadata['part_number']}"
             if 'date' in first_metadata:
