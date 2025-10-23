@@ -215,9 +215,11 @@ class PowerLinearityTab(QWidget):
         # Determine number of files needed
         num_files = 4 if dut_config.hg_lg_enabled else 2
         
-        # Open file dialog
+        # Open file dialog - start from user's home directory to avoid cross-platform path issues
+        import os
+        start_dir = os.path.expanduser("~")
         files, _ = QFileDialog.getOpenFileNames(
-            self, f"Select {num_files} Power/Linearity Files", "", 
+            self, f"Select {num_files} Power/Linearity Files", start_dir, 
             "Excel Files (*.xlsx *.xls);;CSV Files (*.csv);;All Supported Files (*.xlsx *.xls *.csv)")
         
         if not files:
@@ -228,6 +230,13 @@ class PowerLinearityTab(QWidget):
             QMessageBox.warning(self, "Wrong Number of Files", 
                               f"Please select exactly {num_files} files.")
             return
+        
+        # Validate that all files exist (cross-platform compatibility)
+        for file_path in files:
+            if not os.path.exists(file_path):
+                QMessageBox.warning(self, "File Not Found", 
+                                  f"File does not exist: {file_path}")
+                return
         
         # Validate and parse files
         self.progress_bar.setVisible(True)
