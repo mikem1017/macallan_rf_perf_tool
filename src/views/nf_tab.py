@@ -143,6 +143,12 @@ class NFTab(QWidget):
         
         # Open file dialog - start from user's home directory to avoid cross-platform path issues
         import os
+        from PyQt6.QtCore import QSettings
+        
+        # Clear any stored file dialog state to prevent cross-platform path issues
+        QSettings().remove("fileDialog/lastDirectory")
+        QSettings().remove("fileDialog/recentFiles")
+        
         start_dir = os.path.expanduser("~")
         files, _ = QFileDialog.getOpenFileNames(
             self, f"Select {num_files} CSV Files", start_dir, 
